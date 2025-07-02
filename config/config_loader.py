@@ -2,17 +2,36 @@
 
 import os
 import sys
-from typing import Optional, Set, Dict, Any
+import dotenv
+from typing import Optional, Set, Dict, Any, List
 from dataclasses import dataclass
 from logger import Logger
 
+# Load .env file at module import time
+dotenv.load_dotenv()
 
 @dataclass(frozen=True)
 class TradingConfig:
     """Immutable configuration data class with validation."""
+    # API Configuration
     api_key: str
     api_secret: str
+    
+    # Trading Configuration
     mode: str
+    symbols: List[str]
+    timeframes: List[str]
+    history_count: int
+    
+    # Data Configuration
+    max_candles: int
+    cache_ttl: int
+    
+    # Application Configuration
+    log_level: str
+    log_to_file: bool
+    
+    # Legacy support
     timeframe: Optional[str] = None
     
     def __post_init__(self):
@@ -25,13 +44,34 @@ class TradingConfig:
             if not self.api_key or not self.api_secret:
                 raise ValueError("API credentials cannot be empty for live mode")
         
-        if self.mode == "backtest" and (not self.timeframe or self.timeframe not in ConfigLoader.VALID_TIMEFRAMES):
-            raise ValueError(f"Backtest mode requires timeframe. Must be one of {ConfigLoader.VALID_TIMEFRAMES}")
+        # Validate timeframes
+        invalid_timeframes = [tf for tf in self.timeframes if tf not in ConfigLoader.VALID_TIMEFRAMES]
+        if invalid_timeframes:
+            raise ValueError(f"Invalid timeframes {invalid_timeframes}. Valid: {list(ConfigLoader.VALID_TIMEFRAMES)}")
+        
+        # Validate symbols
+        if not self.symbols:
+            raise ValueError("At least one symbol must be specified")
+        
+        # Validate numeric values
+        if self.history_count <= 0:
+            raise ValueError("History count must be positive")
+        if self.max_candles <= 0:
+            raise ValueError("Max candles must be positive")
+        if self.cache_ttl < 0:
+            raise ValueError("Cache TTL must be non-negative")
     
-    def get_masked_secrets(self) -> Dict[str, str]:
+    def get_masked_secrets(self) -> Dict[str, Any]:
         """Return configuration with masked secrets for secure logging."""
         result = {
             "mode": self.mode,
+            "symbols": self.symbols,
+            "timeframes": self.timeframes,
+            "history_count": self.history_count,
+            "max_candles": self.max_candles,
+            "cache_ttl": self.cache_ttl,
+            "log_level": self.log_level,
+            "log_to_file": self.log_to_file,
         }
         
         # Only show API credentials for live mode
@@ -41,7 +81,6 @@ class TradingConfig:
                 "api_secret": self._mask_secret(self.api_secret),
             })
         
-        result["timeframe"] = self.timeframe or "N/A"
         return result
     
     @staticmethod
@@ -51,12 +90,24 @@ class TradingConfig:
             return "***"
         return f"{secret[:4]}***{secret[-4:]}"
 
+
 class ConfigLoader:
-    """Optimized configuration loader for crypto trading application."""
+    """Enhanced configuration loader for crypto trading application."""
     
     # Use frozenset for immutable, efficient lookups
-    VALID_MODES: Set[str] = frozenset({"backtest", "live"})
-    VALID_TIMEFRAMES: Set[str] = frozenset({"1", "5", "15", "30", "60", "240", "720", "1440"})
+    VALID_MODES: Set[str] = frozenset({"backtest", "live", "data"})
+    VALID_TIMEFRAMES: Set[str] = frozenset({"1m", "5m", "15m", "30m", "1h", "4h", "1d"})
+    VALID_SYMBOLS: Set[str] = frozenset({"BTC", "ETH", "ADA", "DOT", "LINK", "UNI", "AAVE", "MATIC", "SOL", "AVAX"})
+    VALID_LOG_LEVELS: Set[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+    
+    # Default values
+    DEFAULT_SYMBOLS = ["BTC"]
+    DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h"]
+    DEFAULT_HISTORY_COUNT = 1000
+    DEFAULT_MAX_CANDLES = 2000
+    DEFAULT_CACHE_TTL = 60
+    DEFAULT_LOG_LEVEL = "INFO"
+    DEFAULT_LOG_TO_FILE = True
     
     def __init__(self, interactive: bool = True):
         """
@@ -102,18 +153,52 @@ class ConfigLoader:
             api_key = self._get_config_value("API_KEY", "🔑 Enter API_KEY", required=True)
             api_secret = self._get_config_value("API_SECRET", "🔐 Enter API_SECRET", required=True)
         
-        # Get timeframe for backtest mode
-        timeframe = None
-        if mode == "backtest":
-            timeframe = self._get_config_value("TIMEFRAME", "🕒 Enter TIMEFRAME",
-                                             valid_values=self.VALID_TIMEFRAMES,
-                                             required=True)
+        # Load symbols - comma-separated list
+        symbols_str = self._get_config_value("SYMBOLS", "💰 Enter SYMBOLS (comma-separated)", 
+                                           required=False, default=",".join(self.DEFAULT_SYMBOLS))
+        symbols = [s.strip().upper() for s in symbols_str.split(",") if s.strip()]
+        
+        # Validate symbols
+        invalid_symbols = [s for s in symbols if s not in self.VALID_SYMBOLS]
+        if invalid_symbols:
+            self.logger.warning(f"⚠️  Unknown symbols: {invalid_symbols}. Proceeding anyway...")
+        
+        # Load timeframes - comma-separated list
+        timeframes_str = self._get_config_value("TIMEFRAMES", "📊 Enter TIMEFRAMES (comma-separated)",
+                                              required=False, default=",".join(self.DEFAULT_TIMEFRAMES))
+        timeframes = [t.strip().lower() for t in timeframes_str.split(",") if t.strip()]
+        
+        # Load numeric configurations
+        history_count = int(self._get_config_value("HISTORY_COUNT", "📈 Enter HISTORY_COUNT",
+                                                 required=False, default=str(self.DEFAULT_HISTORY_COUNT)))
+        
+        max_candles = int(self._get_config_value("MAX_CANDLES", "📊 Enter MAX_CANDLES", 
+                                               required=False, default=str(self.DEFAULT_MAX_CANDLES)))
+        
+        cache_ttl = int(self._get_config_value("CACHE_TTL", "⏰ Enter CACHE_TTL (seconds)",
+                                             required=False, default=str(self.DEFAULT_CACHE_TTL)))
+        
+        # Load logging configuration
+        log_level = self._get_config_value("LOG_LEVEL", "📝 Enter LOG_LEVEL",
+                                         valid_values=self.VALID_LOG_LEVELS,
+                                         transform=str.upper,
+                                         required=False, default=self.DEFAULT_LOG_LEVEL)
+        
+        log_to_file_str = self._get_config_value("LOG_TO_FILE", "📁 Log to file (true/false)",
+                                                required=False, default="true")
+        log_to_file = log_to_file_str.lower() in ("true", "1", "yes", "on")
         
         return TradingConfig(
             api_key=api_key,
             api_secret=api_secret,
             mode=mode,
-            timeframe=timeframe
+            symbols=symbols,
+            timeframes=timeframes,
+            history_count=history_count,
+            max_candles=max_candles,
+            cache_ttl=cache_ttl,
+            log_level=log_level,
+            log_to_file=log_to_file
         )
     
     def _get_config_value(self,
@@ -121,7 +206,8 @@ class ConfigLoader:
                          prompt: str,
                          valid_values: Optional[Set[str]] = None,
                          transform: Optional[callable] = None,
-                         required: bool = False) -> str:
+                         required: bool = False,
+                         default: Optional[str] = None) -> str:
         """
         Get configuration value from environment or user input with validation.
         
@@ -131,6 +217,7 @@ class ConfigLoader:
             valid_values: Set of valid values for validation
             transform: Function to transform the input value
             required: Whether the value is required
+            default: Default value to use if not found and not required
             
         Returns:
             The validated configuration value
@@ -139,6 +226,10 @@ class ConfigLoader:
             ValueError: If required value is missing or invalid
         """
         value = os.getenv(env_var)
+        
+        # Use default if no value found and not required
+        if not value and not required and default:
+            value = default
         
         # Transform value if transformer provided
         if value and transform:
@@ -152,9 +243,21 @@ class ConfigLoader:
                     error_msg += f". Expected one of: {', '.join(sorted(valid_values))}"
                 raise ValueError(error_msg)
             
+            # Show current default if available
+            prompt_text = prompt
+            if default and not required:
+                prompt_text += f" (default: {default})"
+            
             # Prompt user for input
-            value = self._prompt_user_input(prompt, valid_values)
-            if transform:
+            user_input = self._prompt_user_input(prompt_text, valid_values)
+            
+            # Use default if user provides empty input and default exists
+            if not user_input and default and not required:
+                value = default
+            else:
+                value = user_input
+                
+            if transform and value:
                 value = transform(value)
         
         return value
@@ -190,7 +293,9 @@ class ConfigLoader:
         
         for key, value in masked_config.items():
             icon = self._get_config_icon(key)
-            self.logger.info(f"{icon} {key.upper():<12} = {value}")
+            if isinstance(value, list):
+                value = ", ".join(str(v) for v in value)
+            self.logger.info(f"{icon} {key.upper():<15} = {value}")
     
     @staticmethod
     def _get_config_icon(key: str) -> str:
@@ -199,9 +304,15 @@ class ConfigLoader:
             "api_key": "🔑",
             "api_secret": "🔐",
             "mode": "⚙️ ",
-            "timeframe": "🕒"
+            "symbols": "💰",
+            "timeframes": "📊",
+            "history_count": "📈",
+            "max_candles": "📊",
+            "cache_ttl": "⏰",
+            "log_level": "📝",
+            "log_to_file": "📁"
         }
-        return icons.get(key, "�")
+        return icons.get(key, "🔧")
     
     def _handle_configuration_error(self, error: Exception) -> None:
         """Handle configuration errors appropriately."""
@@ -217,7 +328,7 @@ class ConfigLoader:
     def reload(self) -> None:
         """Reload configuration from environment variables."""
         try:
-            self.logger.info("� Reloading configuration...")
+            self.logger.info("🔄 Reloading configuration...")
             self._config = self._load_and_validate_config()
             self._log_configuration()
             self.logger.info("✅ Configuration reloaded successfully")
@@ -235,9 +346,9 @@ class ConfigLoader:
         if not self._config:
             return False
         
-        # Skip validation for backtest mode
-        if self._config.mode == "backtest":
-            self.logger.info("📊 Backtest mode - API credentials not required")
+        # Skip validation for non-live modes
+        if self._config.mode != "live":
+            self.logger.info(f"📊 {self._config.mode.title()} mode - API credentials not required")
             return True
         
         # Basic validation for live mode
