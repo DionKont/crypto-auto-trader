@@ -1,8 +1,67 @@
-# 🚀 Kraken Trading Module - Complete Professional Trading Suite
+# 🚀 Crypto Auto-Trader - Modular Trading System
 
 ## 🎯 Overview
 
-A comprehensive, production-ready Python trading module for the Kraken cryptocurrency exchange. This module provides complete access to all Kraken trading functionality with enterprise-grade error handling, comprehensive logging, and fail-safe mechanisms.
+A comprehensive, production-ready Python trading system for cryptocurrency exchanges with a modular architecture. The system supports both live trading and backtesting with enterprise-grade error handling, comprehensive logging, and fail-safe mechanisms.
+
+## 🏗️ Architecture
+
+The system is built with a modular architecture consisting of three main modules:
+
+- **📊 DataIngestion**: Handles market data ingestion and price feeds
+- **🧠 StrategyExecutor**: Manages trading strategies and signal generation  
+- **💼 Trader**: Executes trades in both live and simulated environments
+
+```
+modules/
+├── data_ingestion/     # Market data and price feeds
+├── strategy_executor/  # Trading strategies and signals
+└── trader/            # Live and simulated trading
+    ├── kraken/        # Kraken exchange integration
+    └── backtest/      # Portfolio simulation
+shared/                # Shared components (auth, portfolio)
+```
+
+## 📦 Installation & Quick Start
+
+```bash
+pip install -r requirements.txt
+python3 main.py
+```
+
+### Live Trading
+```python
+from modules.trader.trader_manager import TraderManager
+from config.config_loader import TradingConfig
+
+# Configure for live trading
+config = TradingConfig(
+    api_key="your_key", 
+    api_secret="your_secret", 
+    mode="live"
+)
+
+# Initialize trader manager
+trader_manager = TraderManager(config)
+portfolio = trader_manager.get_portfolio()
+trader = trader_manager.get_trader()
+
+# Execute trades
+trader.market_buy("XXBTZEUR", Decimal("0.001"))
+```
+
+### Backtesting
+```python
+# Configure for backtesting
+config = TradingConfig(mode="backtest", timeframe="5")
+trader_manager = TraderManager(config)
+portfolio = trader_manager.get_portfolio()
+
+# Simulate trades
+portfolio.execute_trade("GBP", Decimal("100"), "ETH", Decimal("0.05"))
+```
+
+---
 
 ## ✨ Key Features
 
@@ -10,24 +69,9 @@ A comprehensive, production-ready Python trading module for the Kraken cryptocur
 - 🛡️ **Bulletproof Error Handling**: Retry logic, validation, comprehensive logging
 - 🎯 **Production Ready**: Rate limiting, dead man's switch, session management
 - 📊 **Real-time Trading**: Market data, order management, position tracking
-- 🏗️ **Developer Friendly**: Type hints, enums, helper methods, extensive documentation
-
-## 📦 Installation & Quick Start
-
-```python
-from kraken.auth import KrakenAuth
-from kraken.trade import KrakenTrader
-from decimal import Decimal
-
-# Initialize
-auth = KrakenAuth(api_key="your_key", api_secret="your_secret")
-trader = KrakenTrader(auth, timeout=30, max_retries=3)
-
-# Place your first trade
-result = trader.market_buy("XXBTZEUR", Decimal("0.001"))
-```
-
----
+- 🧪 **Backtesting**: Full portfolio simulation with historical tracking
+- 🏗️ **Modular Design**: Extensible architecture for multiple strategies and exchanges
+- 🔒 **Shared Components**: Reusable authentication and portfolio management
 
 ## 🔥 Complete Order Types & Trading Capabilities
 

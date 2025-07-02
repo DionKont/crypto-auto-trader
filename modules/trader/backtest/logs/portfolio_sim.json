@@ -1,0 +1,24 @@
+{
+  "portfolio_states": [
+    {
+      "timestamp": 1751448101.6808279,
+      "datetime": "2025-07-02T10:21:41.680828",
+      "event_type": "initialization",
+      "balances": {
+        "ETH": "1.0",
+        "GBP": "1000.0"
+      },
+      "asset_count": 2,
+      "event_data": {}
+    }
+  ],
+  "summary": {
+    "total_states": 1,
+    "start_time": 1751448101.6808279,
+    "last_update": 1751448101.6808279,
+    "current_balances": {
+      "ETH": "1.0",
+      "GBP": "1000.0"
+    }
+  }
+}

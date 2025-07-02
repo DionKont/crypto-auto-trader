@@ -6,9 +6,9 @@ Simple utility to create the appropriate portfolio based on configuration.
 
 from typing import Union
 from config.config_loader import TradingConfig
-from kraken.auth import KrakenAuth
-from kraken.portfolio import Portfolio
-from backtest.portfolio_sim import PortfolioSim
+from shared.auth import KrakenAuth
+from shared.portfolio import Portfolio
+from modules.trader.backtest.portfolio_sim import PortfolioSim
 
 
 class PortfolioFactory:
