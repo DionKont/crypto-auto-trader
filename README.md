@@ -1,32 +1,32 @@
-# 🚀 Crypto Auto-Trader - Advanced Market Data & Trading System
+# 🚀 Crypto Auto-Trader - Real-Time Algorithmic Trading System
 
 ## 🎯 Overview
 
-A **production-ready, enterprise-grade** Python trading system featuring comprehensive market data ingestion, real-time price feeds, and automated trading capabilities. Built with a modular architecture supporting both live trading and backtesting.
+A **modern, modular Python trading system** for real-time cryptocurrency algorithmic trading with comprehensive data management, symbol handling, and strategy-agnostic architecture. Built for extensibility and production deployment.
 
 ## ✨ Key Features
 
-### 📊 **Advanced Data Ingestion** (✅ FULLY OPERATIONAL)
-- **Complete Kraken REST API integration** - All 9 public endpoints
-- **Real-time WebSocket feeds** - Ticker, trades, order book, OHLC, spreads
-- **514 assets & 1,080 trading pairs** supported
-- **Intelligent caching system** with configurable TTL
-- **Comprehensive error handling** with automatic retries
+### 📊 **Unified Data Management** (✅ FULLY OPERATIONAL)
+- **DataStream class** - Unified historical and live data handling
+- **Real-time WebSocket feeds** - OHLC, ticker, trades, order book
+- **Symbol Management** - API-driven symbol/pair mapping and validation
+- **Rolling data windows** - Configurable polars DataFrame management
+- **Event-driven callbacks** - Strategy integration ready
 
-### 🏗️ **Modular Architecture**
-- **DataIngestion**: Market data, price feeds, real-time streams
-- **StrategyExecutor**: Trading strategies and signal generation  
-- **Trader**: Live and simulated trading execution
-- **Shared Components**: Authentication, portfolio management
+### 🏗️ **Clean Architecture**
+- **core/**: DataStream for unified data access
+- **utils/**: SymbolManager for pair mapping and validation
+- **modules/**: Data ingestion (REST + WebSocket)
+- **Strategy-agnostic**: Ready for any trading algorithm
 
-### 💼 **Enterprise Features**
-- **Production-ready code** with comprehensive logging
-- **Thread-safe WebSocket implementation**
-- **Automatic reconnection & retry logic**
-- **Rate limiting compliance**
-- **Graceful error degradation**
+### 💼 **Production Features**
+- **Multi-symbol support** - Track multiple cryptocurrencies simultaneously
+- **Error handling & recovery** - Robust connection management
+- **Kraken API integration** - Complete REST and WebSocket support
+- **Live market data** - Real-time price updates with callbacks
+- **Demo/Mock actions** - Testing and strategy development support
 
-## � Quick Start
+## 🚀 Quick Start
 
 ### Installation
 ```bash
@@ -35,50 +35,79 @@ cd crypto-auto-trader
 pip install -r requirements.txt
 ```
 
-### Run Data Ingestion Demo
+### Basic Usage
 ```bash
-python demo_data_ingestion.py
+# Single symbol trading
+python main.py BTC
+
+# Multiple symbols
+python main.py BTC ETH ADA
+
+# Quick demo
+python demo_datastream.py
 ```
 
-### Live Market Data
+### Programming Interface
 ```python
-from modules.data_ingestion.data_manager import DataIngestionManager
+from utils.data_stream import DataStream
 
-# Initialize data manager
-data_manager = DataIngestionManager()
+# Create data stream
+data_stream = DataStream()
 
-# Get real-time prices
-btc_price = data_manager.get_price_feed('XXBTZUSD')
-eth_price = data_manager.get_price_feed('XETHZUSD')
+# Set up callbacks
+def on_price_update(symbol, df):
+    latest = df.tail(1)
+    price = latest['close'][0]
+    print(f"{symbol}: ${price:.2f}")
 
-# Get comprehensive market data
-market_data = data_manager.get_market_data('XXBTZUSD')
-print(f"Bitcoin: ${btc_price:,.2f}")
+data_stream.add_data_callback(on_price_update)
+
+# Load symbol and start live data
+data_stream.load_symbol("BTC")
+data_stream.start_live_data(["BTC"])
 ```
 
 ### System Architecture
 ```
+utils/
+├── data_stream.py           # 🔥 UNIFIED DATA MANAGEMENT
+│   └── DataStream           # Historical + live data with callbacks
+├── symbol_manager.py        # Symbol/pair mapping & validation
+└── __init__.py              # Utils package
 modules/
-├── data_ingestion/          # 🔥 COMPREHENSIVE MARKET DATA
-│   ├── data_manager.py      # Unified data interface
-│   ├── rest_client.py       # Complete REST API client
+├── data_ingestion/          # REST + WebSocket data ingestion
+│   ├── data_manager.py      # Data fetching and WebSocket management
+│   ├── rest_client.py       # Kraken REST API client
 │   └── websocket_client.py  # Real-time WebSocket feeds
-├── strategy_executor/       # Trading strategies
-└── trader/                  # Trading execution
-    ├── kraken/             # Kraken exchange integration
-    └── backtest/           # Portfolio simulation
-shared/                     # Authentication & portfolio
+kraken/                      # Exchange-specific components
+├── auth.py                  # Authentication
+├── trade.py                 # Trading execution
+└── portfolio.py             # Portfolio management
+backtest/                    # Backtesting framework
+main.py                      # Main trading orchestration
+demo_datastream.py           # Quick functionality demo
 ```
 
-### Backtesting
+### Modern Event-Driven Design
 ```python
-# Configure for backtesting
-config = TradingConfig(mode="backtest", timeframe="5")
-trader_manager = TraderManager(config)
-portfolio = trader_manager.get_portfolio()
+# The new DataStream approach
+from utils.data_stream import DataStream
 
-# Simulate trades
-portfolio.execute_trade("GBP", Decimal("100"), "ETH", Decimal("0.05"))
+# Create unified data manager
+data_stream = DataStream()
+
+# Event callbacks for strategy integration
+def on_market_update(symbol, df):
+    # Your strategy logic here
+    latest_price = df.tail(1)['close'][0]
+    # Make trading decisions...
+
+data_stream.add_data_callback(on_market_update)
+
+# Load multiple symbols and start live tracking
+for symbol in ["BTC", "ETH", "ADA"]:
+    data_stream.load_symbol(symbol)
+data_stream.start_live_data()
 ```
 
 ---
