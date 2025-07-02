@@ -14,15 +14,23 @@ from utils.symbol_manager import SymbolManager
 class DataStream:
     """
     Unified data stream manager that handles both historical and live data.
-    Provides event-driven callbacks and maintains rolling OHLCV data for symbols.
+    Provides event-driven callbacks and maintains rolling OHLCV data for symbols across multiple timeframes.
     """
+    
+    # Supported timeframes mapping: user_friendly -> kraken_interval_minutes
+    TIMEFRAMES = {
+        '1m': 1,
+        '5m': 5,
+        '15m': 15,
+        '1h': 60
+    }
     
     def __init__(self, data_manager: DataIngestionManager = None):
         self.data_manager = data_manager or DataIngestionManager(websocket_callback=self._websocket_callback)
         self.symbol_manager = SymbolManager(self.data_manager)
         
-        # Data storage: symbol -> polars DataFrame
-        self._candles_data: Dict[str, pl.DataFrame] = {}
+        # Data storage: (symbol, timeframe) -> polars DataFrame
+        self._candles_data: Dict[tuple, pl.DataFrame] = {}
         
         # Symbol tracking: user_symbol -> pair_info
         self._tracked_symbols: Dict[str, Dict] = {}
@@ -34,8 +42,8 @@ class DataStream:
         # Configuration
         self._max_candles = 1000  # Default rolling window
         
-    def add_data_callback(self, callback: Callable[[str, pl.DataFrame], None]):
-        """Add a callback for data updates. Callback receives (symbol, updated_dataframe)"""
+    def add_data_callback(self, callback: Callable[[str, str, pl.DataFrame], None]):
+        """Add a callback for data updates. Callback receives (symbol, timeframe, updated_dataframe)"""
         self._data_callbacks.append(callback)
     
     def add_error_callback(self, callback: Callable[[str, str], None]):
@@ -60,7 +68,7 @@ class DataStream:
                 self._process_live_candle(user_symbol, ohlc)
     
     def _process_live_candle(self, symbol: str, ohlc: Dict):
-        """Process a live candle update for a symbol"""
+        """Process a live candle update for a symbol (only 1m timeframe from websocket)"""
         try:
             new_row = pl.DataFrame({
                 'timestamp': [datetime.now()],
@@ -71,16 +79,18 @@ class DataStream:
                 'volume': [float(ohlc.get('volume', 0))]
             })
             
-            if symbol in self._candles_data:
+            # Only update 1m timeframe from websocket
+            key = (symbol, '1m')
+            if key in self._candles_data:
                 # Append new candle and maintain rolling window
-                self._candles_data[symbol] = pl.concat([self._candles_data[symbol], new_row]).tail(self._max_candles)
+                self._candles_data[key] = pl.concat([self._candles_data[key], new_row]).tail(self._max_candles)
             else:
-                self._candles_data[symbol] = new_row
+                self._candles_data[key] = new_row
             
             # Notify callbacks
             for callback in self._data_callbacks:
                 try:
-                    callback(symbol, self._candles_data[symbol])
+                    callback(symbol, '1m', self._candles_data[key])
                 except Exception as e:
                     print(f"Error in data callback: {e}")
                     
@@ -93,12 +103,32 @@ class DataStream:
                 except:
                     pass
     
-    def load_symbol(self, symbol: str, history_count: int = 200) -> bool:
+    def load_symbol(self, symbol: str, timeframes: List[str] = None, history_count: int = 200) -> bool:
         """
-        Load historical data for a symbol and prepare it for live tracking.
-        Returns True if successful, False otherwise.
+        Load historical data for a symbol across multiple timeframes and prepare it for live tracking.
+        
+        Args:
+            symbol: The trading symbol (e.g., 'BTC', 'ETH')
+            timeframes: List of timeframes to load (e.g., ['1m', '5m', '15m', '1h']). If None, loads all supported timeframes.
+            history_count: Number of historical candles to load per timeframe
+            
+        Returns:
+            True if successful for at least one timeframe, False otherwise.
         """
         symbol = symbol.upper()
+        
+        if timeframes is None:
+            timeframes = list(self.TIMEFRAMES.keys())
+        
+        # Validate timeframes
+        invalid_timeframes = [tf for tf in timeframes if tf not in self.TIMEFRAMES]
+        if invalid_timeframes:
+            print(f"Warning: Invalid timeframes {invalid_timeframes}. Supported: {list(self.TIMEFRAMES.keys())}")
+            timeframes = [tf for tf in timeframes if tf in self.TIMEFRAMES]
+        
+        if not timeframes:
+            print("No valid timeframes specified")
+            return False
         
         # Find symbol info
         pair_info = self.symbol_manager.find_pair(symbol)
@@ -115,55 +145,56 @@ class DataStream:
         kraken_pair = pair_info['kraken_pair']
         ws_pair = pair_info['websocket_pair']
         
-        print(f"Loading {symbol}: {kraken_pair} (WS: {ws_pair})")
+        print(f"Loading {symbol}: {kraken_pair} (WS: {ws_pair}) - Timeframes: {timeframes}")
         
-        # Load historical data
-        try:
-            ohlc_data = self.data_manager.get_ohlc_data(kraken_pair, interval=1)
-            if not ohlc_data or kraken_pair not in ohlc_data:
-                error_msg = f"No historical data available for {symbol}"
+        success_count = 0
+        
+        # Load historical data for each timeframe
+        for timeframe in timeframes:
+            interval = self.TIMEFRAMES[timeframe]
+            try:
+                ohlc_data = self.data_manager.get_ohlc_data(kraken_pair, interval=interval)
+                if not ohlc_data or kraken_pair not in ohlc_data:
+                    print(f"No historical data available for {symbol} {timeframe}")
+                    continue
+                
+                candles = ohlc_data[kraken_pair][-history_count:]
+                
+                key = (symbol, timeframe)
+                self._candles_data[key] = pl.DataFrame({
+                    'timestamp': [datetime.fromtimestamp(float(c[0])) for c in candles],
+                    'open': [float(c[1]) for c in candles],
+                    'high': [float(c[2]) for c in candles],
+                    'low': [float(c[3]) for c in candles],
+                    'close': [float(c[4]) for c in candles],
+                    'volume': [float(c[6]) for c in candles]
+                })
+                
+                print(f"Loaded {len(self._candles_data[key])} candles for {symbol} {timeframe}")
+                success_count += 1
+                
+                # Notify callbacks of initial data
+                for callback in self._data_callbacks:
+                    try:
+                        callback(symbol, timeframe, self._candles_data[key])
+                    except Exception as e:
+                        print(f"Error in data callback: {e}")
+                        
+            except Exception as e:
+                error_msg = f"Error loading {symbol} {timeframe}: {e}"
                 print(error_msg)
                 for callback in self._error_callbacks:
                     try:
                         callback(symbol, error_msg)
                     except:
                         pass
-                return False
-            
-            candles = ohlc_data[kraken_pair][-history_count:]
-            
-            self._candles_data[symbol] = pl.DataFrame({
-                'timestamp': [datetime.fromtimestamp(float(c[0])) for c in candles],
-                'open': [float(c[1]) for c in candles],
-                'high': [float(c[2]) for c in candles],
-                'low': [float(c[3]) for c in candles],
-                'close': [float(c[4]) for c in candles],
-                'volume': [float(c[6]) for c in candles]
-            })
-            
+        
+        if success_count > 0:
             self._tracked_symbols[symbol] = pair_info
             self._max_candles = max(self._max_candles, history_count * 2)  # Allow for growth
-            
-            print(f"Loaded {len(self._candles_data[symbol])} candles for {symbol}")
-            
-            # Notify callbacks of initial data
-            for callback in self._data_callbacks:
-                try:
-                    callback(symbol, self._candles_data[symbol])
-                except Exception as e:
-                    print(f"Error in data callback: {e}")
-            
             return True
-            
-        except Exception as e:
-            error_msg = f"Error loading {symbol}: {e}"
-            print(error_msg)
-            for callback in self._error_callbacks:
-                try:
-                    callback(symbol, error_msg)
-                except:
-                    pass
-            return False
+        
+        return False
     
     def start_live_data(self, symbols: List[str] = None) -> bool:
         """
@@ -201,13 +232,14 @@ class DataStream:
         
         return False
     
-    def get_data(self, symbol: str) -> Optional[pl.DataFrame]:
-        """Get the current data for a symbol"""
-        return self._candles_data.get(symbol.upper())
+    def get_data(self, symbol: str, timeframe: str = '1m') -> Optional[pl.DataFrame]:
+        """Get the current data for a symbol and timeframe"""
+        key = (symbol.upper(), timeframe)
+        return self._candles_data.get(key)
     
-    def get_latest_candle(self, symbol: str) -> Optional[Dict]:
-        """Get the latest candle for a symbol as a dictionary"""
-        df = self.get_data(symbol)
+    def get_latest_candle(self, symbol: str, timeframe: str = '1m') -> Optional[Dict]:
+        """Get the latest candle for a symbol and timeframe as a dictionary"""
+        df = self.get_data(symbol, timeframe)
         if df is not None and len(df) > 0:
             latest = df.tail(1)
             return {
@@ -219,6 +251,26 @@ class DataStream:
                 'volume': latest['volume'][0]
             }
         return None
+    
+    def get_all_data(self, symbol: str) -> Dict[str, pl.DataFrame]:
+        """Get all timeframe data for a symbol"""
+        symbol = symbol.upper()
+        result = {}
+        for timeframe in self.TIMEFRAMES.keys():
+            key = (symbol, timeframe)
+            if key in self._candles_data:
+                result[timeframe] = self._candles_data[key]
+        return result
+    
+    def get_loaded_timeframes(self, symbol: str) -> List[str]:
+        """Get list of loaded timeframes for a symbol"""
+        symbol = symbol.upper()
+        timeframes = []
+        for timeframe in self.TIMEFRAMES.keys():
+            key = (symbol, timeframe)
+            if key in self._candles_data:
+                timeframes.append(timeframe)
+        return timeframes
     
     def get_tracked_symbols(self) -> List[str]:
         """Get list of currently tracked symbols"""
