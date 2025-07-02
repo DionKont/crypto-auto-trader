@@ -5,13 +5,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Callable, Optional, Any
 
-try:
-    import polars as pl
-except ImportError:
-    print("Installing polars...")
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "polars"])
-    import polars as pl
+import polars as pl
 
 from modules.data_ingestion.data_manager import DataIngestionManager
 from utils.symbol_manager import SymbolManager
